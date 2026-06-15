@@ -1,0 +1,106 @@
+extends OmniLight3D
+
+## Indian Railways Coach Flickering Light Script
+## Simulates the realistic tube light flickering seen in Indian Railways coaches
+## Attach this script to an OmniLight3D node
+
+@export_group("Light Settings")
+@export var base_energy: float = 1.2          ## Normal brightness
+@export var min_energy: float = 0.0            ## Minimum brightness during flicker
+@export var tube_light_color: Color = Color(1.0, 0.95, 0.85)  ## Warm white tube light color
+
+@export_group("Flicker Range")
+@export var flicker_chance: float = 0.3        ## 0.0 to 1.0 — higher = more flicker
+@export var min_flicker_duration: float = 0.05 ## Minimum flicker OFF time (seconds)
+@export var max_flicker_duration: float = 0.25 ## Maximum flicker OFF time (seconds)
+
+@export_group("Flicker Pattern")
+@export var rapid_flicker_chance: float = 0.4  ## Chance of doing rapid multi-flicker burst
+@export var rapid_flicker_count: int = 5       ## How many rapid flickers in a burst
+@export var min_interval: float = 0.5          ## Min time between flicker events (seconds)
+@export var max_interval: float = 4.0          ## Max time between flicker events (seconds)
+
+@export_group("Voltage Sag")
+@export var enable_voltage_sag: bool = true    ## Dim light like real tube lights do
+@export var sag_energy: float = 0.6            ## Energy during voltage sag
+@export var sag_chance: float = 0.2            ## Chance of voltage sag vs full flicker
+
+var _timer: float = 0.0
+var _next_event: float = 0.0
+var _is_flickering: bool = false
+var _flicker_timer: float = 0.0
+var _rapid_count: int = 0
+var _in_rapid_burst: bool = false
+
+func _ready() -> void:
+	light_color = tube_light_color
+	light_energy = base_energy
+	_schedule_next_event()
+
+func _process(delta: float) -> void:
+	_timer += delta
+
+	if _is_flickering:
+		_flicker_timer -= delta
+		if _flicker_timer <= 0.0:
+			_end_flicker()
+	else:
+		if _timer >= _next_event:
+			_trigger_event()
+
+func _trigger_event() -> void:
+	var roll := randf()
+
+	# Voltage sag — light dims but doesn't go off
+	if enable_voltage_sag and roll < sag_chance:
+		light_energy = sag_energy
+		_is_flickering = true
+		_flicker_timer = randf_range(min_flicker_duration * 2, max_flicker_duration * 3)
+		return
+
+	# Rapid burst flicker (like loose starter in tube light)
+	if roll < rapid_flicker_chance:
+		_in_rapid_burst = true
+		_rapid_count = rapid_flicker_count
+		_do_rapid_flicker()
+		return
+
+	# Normal single flicker
+	light_energy = min_energy
+	_is_flickering = true
+	_flicker_timer = randf_range(min_flicker_duration, max_flicker_duration)
+
+func _do_rapid_flicker() -> void:
+	if _rapid_count <= 0:
+		_in_rapid_burst = false
+		light_energy = base_energy
+		_schedule_next_event()
+		return
+
+	_rapid_count -= 1
+	light_energy = min_energy if light_energy > 0.1 else base_energy
+	_is_flickering = true
+	_flicker_timer = randf_range(0.03, 0.08)
+
+func _end_flicker() -> void:
+	_is_flickering = false
+
+	if _in_rapid_burst:
+		_do_rapid_flicker()
+		return
+
+	light_energy = base_energy
+	_schedule_next_event()
+
+func _schedule_next_event() -> void:
+	_timer = 0.0
+	_next_event = randf_range(min_interval, max_interval)
+
+## Call this to force a flicker event from code
+func force_flicker() -> void:
+	_trigger_event()
+
+## Call this to turn the light on/off completely
+func set_light_active(active: bool) -> void:
+	light_energy = base_energy if active else 0.0
+	set_process(active)
